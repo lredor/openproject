@@ -54,18 +54,26 @@ class Workflows::TabsController < ApplicationController
   end
 
   def update # rubocop:disable Metrics/AbcSize
-    success = false
-    Workflow.transaction do
-      success = true
-      base_params = permitted_status_params
-      indeterminate = permitted_indeterminate_params
-      @roles.each do |role|
-        role_params = indeterminate.empty? ? base_params : role_specific_params(base_params, indeterminate, role)
-        result = Workflows::BulkUpdateService.new(role:, type: @type, tab: @tab)
-                                             .call(role_params)
-        success = false unless result.success?
+    success = true
+
+    unless @type.linked?(Type::ConfigurationLink::WORKFLOWS)
+      success = false
+      Workflow.transaction do
+        success = true
+        base_params = permitted_status_params
+        indeterminate = permitted_indeterminate_params
+        @roles.each do |role|
+          role_params = indeterminate.empty? ? base_params : role_specific_params(base_params, indeterminate, role)
+          result = Workflows::BulkUpdateService.new(role:, type: @type, tab: @tab)
+                                               .call(role_params)
+          success = false unless result.success?
+        end
+        raise ActiveRecord::Rollback unless success
       end
-      raise ActiveRecord::Rollback unless success
+    end
+
+    if success && params[:advance_to_step].present?
+      return redirect_to type_creation_wizard_path(@type, step: params[:advance_to_step]), status: :see_other
     end
 
     if success
